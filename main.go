@@ -5,6 +5,7 @@ import (
 	"fmt"
 	"math"
 	"net/http"
+	"regexp"
 	"sort"
 	"strings"
 	"sync"
@@ -17,12 +18,13 @@ const (
 	perPage = 10
 
 	spClass = "SearchSnippet"
-	hdClass = "SearchSnippet-header"
+	hdClass = "SearchSnippet-headerContainer"
 	snClass = "SearchSnippet-synopsis"
 	ilClass = "SearchSnippet-infoLabel"
 )
 
 type pkg struct {
+	pkg       string
 	repo      string
 	desc      string
 	version   string
@@ -109,25 +111,28 @@ func search(query string, seq int, pc chan<- *page, wg *sync.WaitGroup) {
 	spNodes := find(doc, condHasClass(spClass))
 	for _, spNode := range spNodes {
 		hdNodes := find(spNode, condHasClass(hdClass))
-		pkgRepo := find(hdNodes[0], condValidTxt())[0]
+		hdTexts := find(hdNodes[0], condValidTxt())
 
 		pkgDesc := ""
 		snNodes := find(spNode, condHasClass(snClass))
-		txtNode := find(snNodes[0], condValidTxt())
-		if len(txtNode) > 0 {
-			pkgDesc = txtNode[0].Data
+		if len(snNodes) > 0 {
+			txtNode := find(snNodes[0], condValidTxt())
+			if len(txtNode) > 0 {
+				pkgDesc = txtNode[0].Data
+			}
 		}
 
 		ilNodes := find(spNode, condHasClass(ilClass))
 		pkgMeta := find(ilNodes[0], condValidTxt())
 
 		pkgs = append(pkgs, &pkg{
-			repo:      strings.TrimSpace(pkgRepo.Data),
+			pkg:       strings.TrimSpace(hdTexts[0].Data),
+			repo:      strings.TrimSpace(hdTexts[1].Data),
 			desc:      strings.TrimSpace(pkgDesc),
-			version:   strings.TrimSpace(pkgMeta[1].Data),
-			pubDate:   strings.TrimSpace(pkgMeta[3].Data),
-			importCnt: strings.TrimSpace(pkgMeta[5].Data),
-			license:   strings.TrimSpace(pkgMeta[7].Data),
+			importCnt: strings.TrimSpace(pkgMeta[1].Data),
+			version:   strings.TrimSpace(pkgMeta[2].Data),
+			pubDate:   strings.TrimSpace(pkgMeta[4].Data),
+			license:   strings.TrimSpace(pkgMeta[5].Data),
 		})
 	}
 	pc <- &page{seq, pkgs}
@@ -147,9 +152,10 @@ func find(node *html.Node, by cond) []*html.Node {
 type cond func(*html.Node) bool
 
 func condHasClass(class string) cond {
+	re := regexp.MustCompile(fmt.Sprintf(`(^|\s+)%s(\s+|$)`, class))
 	return func(node *html.Node) bool {
 		for _, attr := range node.Attr {
-			if attr.Key == "class" && attr.Val == class {
+			if attr.Key == "class" && re.MatchString(attr.Val) {
 				return true
 			}
 		}
@@ -164,9 +170,9 @@ func condValidTxt() cond {
 }
 
 func prettyPrint(p *pkg) {
-	fmt.Printf("%s (%s)\n", cfmt.Ssuccess(p.repo), cfmt.Sinfo(p.version))
+	fmt.Printf("%s %s\n", cfmt.Ssuccess(p.pkg), cfmt.Sinfo(p.repo))
 	if p.desc != "" {
 		fmt.Printf("├ %s\n", p.desc)
 	}
-	fmt.Printf("└ Published: %s | Imported by: %s | License: %s\n\n", p.pubDate, p.importCnt, p.license)
+	fmt.Printf("└ Imported by: %s | Version: %s | Published: %s | License: %s\n\n", p.importCnt, p.version, p.pubDate, p.license)
 }
